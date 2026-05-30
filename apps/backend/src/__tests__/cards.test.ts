@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import Fastify from 'fastify';
+import Fastify, { FastifyRequest } from 'fastify';
+import { Prisma } from '@prisma/client';
 import { cardRoutes } from '../routes/cards.js';
 
 const USER_ID = 'user-123';
@@ -45,14 +46,14 @@ const mockPrisma = {
 // against the same mock client, preserving existing per-operation mocks.
 function wireTransaction() {
   mockPrisma.$transaction.mockImplementation(
-    async (callback: (tx: typeof mockPrisma) => Promise<unknown>, options?: any) => callback(mockPrisma),
+    async (callback: (tx: typeof mockPrisma) => Promise<unknown>, options?: unknown) => callback(mockPrisma),
   );
 }
 
 async function buildApp() {
   const app = Fastify({ logger: false });
   app.decorate('prisma', mockPrisma);
-  app.decorate('authenticate', async (request: any) => {
+  app.decorate('authenticate', async (request: FastifyRequest & { user?: { id: string } }) => {
     request.user = { id: USER_ID };
   });
   app.register(cardRoutes, { prefix: '/api/cards' });
@@ -204,8 +205,8 @@ describe('POST /api/cards — link ownership validation', () => {
     
     // First attempt fails with P2034 (serialization conflict)
     // Second attempt succeeds
-    const error = new Error('Serialization failure');
-    (error as any).code = 'P2034';
+    const error = new Error('Serialization failure') as Error & { code: string };
+    error.code = 'P2034';
     
     // We mock $transaction to fail once, then succeed
     mockPrisma.$transaction

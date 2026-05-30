@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify'
-import type { Prisma } from '@prisma/client'
+
+
+type RawCard = { id: string, title: string, isDefault: boolean, cardLinks: { platformLink: unknown }[] };
 
 export async function listCards(app: FastifyInstance, userId: string) {
   const cards = await app.prisma.card.findMany({
@@ -7,9 +9,9 @@ export async function listCards(app: FastifyInstance, userId: string) {
     take: 50,
     include: { cardLinks: { include: { platformLink: true }, orderBy: { displayOrder: 'asc' } } },
     orderBy: { createdAt: 'asc' },
-  })
+  }) as unknown as RawCard[];
 
-  return cards.map((card: any) => ({ id: card.id, title: card.title, isDefault: card.isDefault, links: card.cardLinks.map((cl: any) => cl.platformLink) }))
+  return cards.map((card) => ({ id: card.id, title: card.title, isDefault: card.isDefault, links: card.cardLinks.map((cl) => cl.platformLink) }))
 }
 
 export async function createCard(app: FastifyInstance, userId: string, body: { title: string; linkIds: string[] }) {
@@ -34,12 +36,21 @@ export async function createCard(app: FastifyInstance, userId: string, body: { t
           include: { cardLinks: { include: { platformLink: true }, orderBy: { displayOrder: 'asc' } } },
         })
       }, {
-        isolationLevel: 'Serializable' as Prisma.TransactionIsolationLevel
-      })
+        isolationLevel: 'Serializable'
+      }) as unknown as RawCard;
 
-      return { id: card.id, title: card.title, isDefault: card.isDefault, links: card.cardLinks.map((cl: any) => cl.platformLink) }
-    } catch (error: any) {
-      if (error.code === 'P2034' && attempt < MAX_RETRIES) continue;
+      return { id: card.id, title: card.title, isDefault: card.isDefault, links: card.cardLinks.map((cl) => cl.platformLink) }
+    } catch (error: unknown) {
+      if (
+        typeof error === 'object' && 
+        error !== null && 
+        'code' in error && 
+        (error as { code: string }).code === 'P2034' && 
+        attempt < MAX_RETRIES
+      ) {
+        continue;
+      }
+      app.log.error(error);
       throw error;
     }
   }
@@ -68,8 +79,9 @@ export async function updateCard(app: FastifyInstance, userId: string, id: strin
     })
   }
 
-  const updated = await app.prisma.card.findUnique({ where: { id }, include: { cardLinks: { include: { platformLink: true }, orderBy: { displayOrder: 'asc' } } } })
-  return { id: updated!.id, title: updated!.title, isDefault: updated!.isDefault, links: updated!.cardLinks.map((cl: any) => cl.platformLink) }
+  const updated = (await app.prisma.card.findUnique({ where: { id }, include: { cardLinks: { include: { platformLink: true }, orderBy: { displayOrder: 'asc' } } } })) as unknown as RawCard | null;
+  if (!updated) return null;
+  return { id: updated.id, title: updated.title, isDefault: updated.isDefault, links: updated.cardLinks.map((cl) => cl.platformLink) }
 }
 
 export async function deleteCard(app: FastifyInstance, userId: string, id: string) {
